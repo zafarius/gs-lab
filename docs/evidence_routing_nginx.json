@@ -1,0 +1,41 @@
+{
+  "level": "info",
+  "ts": 1770454893.616992,
+  "logger": "http.log.access.log0",
+  "msg": "handled request",
+  "request": {
+    "remote_ip": "XXX.XXX.XXX.XXX",
+    "remote_port": "57876",
+    "client_ip": "XXX.XXX.XXX.XXX",
+    "proto": "HTTP/1.1",
+    "method": "GET",
+    "host": "<VM1_PUBLIC_IP>",
+    "uri": "/nginx",
+    "headers": {
+      "Accept-Encoding": ["gzip, deflate"],
+      "Accept-Language": ["de-DE,de;q=0.9"],
+      "Cache-Control": ["max-age=0"],
+      "Upgrade-Insecure-Requests": ["1"],
+      "Accept": ["text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"],
+      "If-None-Match": ["\"6986e6eb-e26\""],
+      "Dnt": ["1"],
+      "User-Agent": ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)..."],
+      "If-Modified-Since": ["Sat, 07 Feb 2026 07:16:59 GMT"],
+      "Connection": ["keep-alive"]
+    }
+  },
+  "bytes_read": 0,
+  "user_id": "",
+  "duration": 0.001492976,
+  "size": 0,
+  "status": 304,
+  "resp_headers": {
+    "Via": ["1.1 Caddy"],
+    "X-Content-Type-Options": ["nosniff"],
+    "X-Frame-Options": ["DENY"],
+    "Server": ["nginx/1.24.0 (Ubuntu)"],
+    "Date": ["Sat, 07 Feb 2026 09:01:33 GMT"],
+    "Last-Modified": ["Sat, 07 Feb 2026 07:16:59 GMT"],
+    "Etag": ["\"6986e6eb-e26\""]
+  }
+}
