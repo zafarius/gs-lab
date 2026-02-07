@@ -1,0 +1,19 @@
+# Example Terraform variables file
+# Copy this file to terraform.tfvars and fill in your actual values
+# terraform.tfvars is gitignored and will not be committed
+
+# Gridscale project UUID
+gridscale_uuid = "YOUR_PROJECT_UUID"
+
+# Gridscale API token (keep this secret!)
+gridscale_token = "YOUR_API_TOKEN"
+
+# SSH public key to inject into VMs
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA... your_email@example.com"
+
+# Gridscale public network UUID (specific to your location)
+public_network_uuid = "your-public-network-uuid"
+
+# Private IP addresses
+caddy_private_ip = "192.168.10.1/24"
+nginx_private_ip = "192.168.10.2/24"
