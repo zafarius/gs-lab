@@ -4,6 +4,28 @@
 
 This project demonstrates a secure, cloud-based infrastructure setup using **Infrastructure as Code (IaC)** principles. The infrastructure is provisioned with **Terraform** and configured using **Ansible** playbooks.
 
+## Table of Contents
+
+- [Architecture](#architecture)
+  - [Network Topology](#network-topology)
+  - [Security Features](#security-features)
+    - [Firewall Configuration](#firewall-configuration)
+    - [SSH Access](#ssh-access)
+    - [Storage](#storage)
+- [Infrastructure Deployment](#infrastructure-deployment)
+  - [Prerequisites](#prerequisites)
+  - [Provisioning with Terraform](#provisioning-with-terraform)
+- [Configuration Management](#configuration-management)
+  - [Ansible Playbooks](#ansible-playbooks)
+  - [Caddy Setup](#caddy-setup-setup_caddyyml)
+  - [Nginx Setup](#nginx-setup-setup_nginxyml)
+  - [Prometheus Monitoring](#prometheus-monitoring)
+- [Monitoring and Validation](#monitoring-and-validation)
+  - [Prometheus Dashboard](#prometheus-dashboard)
+    - [Active Targets Verification](#active-targets-verification)
+    - [Alert Configuration Validation](#alert-configuration-validation)
+  - [Reverse Proxy Routing Validation](#reverse-proxy-routing-validation)
+
 ## Architecture
 
 The solution comprises two Ubuntu-based virtual machines deployed within a private network (`192.168.10.0/24`):
