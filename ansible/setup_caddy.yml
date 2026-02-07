@@ -1,0 +1,282 @@
+---
+- name: Setup Caddy Web Server
+  hosts: gateways
+  become: true
+  tasks:
+    # ==========================================
+    # STEP 1: Install Caddy Web Server
+    # ==========================================
+
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - tar
+          - debian-keyring
+          - debian-archive-keyring
+          - apt-transport-https
+        state: present
+        update_cache: yes
+
+    - name: Add Caddy GPG key
+      ansible.builtin.apt_key:
+        url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+        state: present
+
+    - name: Add Caddy repository
+      ansible.builtin.apt_repository:
+        repo: "deb https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main"
+        state: present
+        filename: caddy-stable
+
+    - name: Install Caddy
+      ansible.builtin.apt:
+        name: caddy
+        state: present
+        update_cache: yes
+
+    - name: Ensure Caddy service is enabled
+      ansible.builtin.systemd:
+        name: caddy
+        enabled: yes
+
+    # ==========================================
+    # STEP 2: Configure Sample Web Application
+    # ==========================================
+
+    - name: Create web root directory
+      ansible.builtin.file:
+        path: /var/www/html
+        state: directory
+        mode: '0755'
+        owner: caddy
+        group: caddy
+
+    - name: Create custom welcome page
+      ansible.builtin.copy:
+        dest: /var/www/html/index.html
+        content: |
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>GS Lab - Caddy Gateway</title>
+              <style>
+                  * {
+                      margin: 0;
+                      padding: 0;
+                      box-sizing: border-box;
+                  }
+                  body {
+                      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                      background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+                      min-height: 100vh;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      padding: 20px;
+                  }
+                  .container {
+                      background: white;
+                      border-radius: 20px;
+                      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                      padding: 50px;
+                      max-width: 800px;
+                      text-align: center;
+                  }
+                  h1 {
+                      color: #3498db;
+                      font-size: 3em;
+                      margin-bottom: 20px;
+                  }
+                  h2 {
+                      color: #2980b9;
+                      font-size: 1.5em;
+                      margin-bottom: 30px;
+                  }
+                  .info-box {
+                      background: #f7f7f7;
+                      border-radius: 10px;
+                      padding: 20px;
+                      margin: 20px 0;
+                      text-align: left;
+                  }
+                  .info-box h3 {
+                      color: #3498db;
+                      margin-bottom: 15px;
+                  }
+                  .info-box ul {
+                      list-style: none;
+                      padding-left: 0;
+                  }
+                  .info-box li {
+                      padding: 8px 0;
+                      border-bottom: 1px solid #e0e0e0;
+                  }
+                  .info-box li:last-child {
+                      border-bottom: none;
+                  }
+                  .info-box li strong {
+                      color: #2980b9;
+                      display: inline-block;
+                      width: 200px;
+                  }
+                  .status {
+                      display: inline-block;
+                      padding: 5px 15px;
+                      background: #3498db;
+                      color: white;
+                      border-radius: 20px;
+                      font-size: 0.9em;
+                      margin-top: 20px;
+                  }
+                  .badge {
+                      display: inline-block;
+                      padding: 5px 10px;
+                      background: #2ecc71;
+                      color: white;
+                      border-radius: 5px;
+                      font-size: 0.8em;
+                      margin-left: 10px;
+                  }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>🚀 Caddy Gateway</h1>
+                  <h2>Internet-Facing Gateway - GS Lab</h2>
+                  <span class="status">✓ Online</span>
+                  <span class="badge">Public IP: 185.241.34.22</span>
+                  
+                  <div class="info-box">
+                      <h3>📊 Server Information</h3>
+                      <ul>
+                          <li><strong>Web Server:</strong> Caddy 2.x</li>
+                          <li><strong>Role:</strong> Internet Gateway & Reverse Proxy</li>
+                          <li><strong>Network:</strong> Public + Private (192.168.10.0/24)</li>
+                          <li><strong>Status:</strong> Running</li>
+                      </ul>
+                  </div>
+                  
+                  <div class="info-box">
+                      <h3>🔗 Available Services</h3>
+                      <ul>
+                          <li><strong>Home Page:</strong> /</li>
+                          <li><strong>Health Check:</strong> /health</li>
+                          <li><strong>Nginx Backend:</strong> /nginx (→ 192.168.10.2)</li>
+                          <li><strong>Metrics:</strong> /metrics (localhost only)</li>
+                      </ul>
+                  </div>
+              </div>
+          </body>
+          </html>
+        mode: '0644'
+        owner: caddy
+        group: caddy
+
+
+    # ==========================================
+    # STEP 3: Configure Caddy with Metrics
+    # ==========================================
+
+    - name: Create Caddyfile configuration
+      ansible.builtin.copy:
+        dest: /etc/caddy/Caddyfile
+        content: |
+          {
+              # Global options
+              admin off
+              # Enable Prometheus metrics
+              servers {
+                  metrics
+              }
+          }
+
+          # Metrics endpoint - localhost only (for Prometheus)
+          localhost:80 {
+              handle /metrics {
+                  metrics /metrics
+              }
+          }
+
+          # Main web server - public
+          :80 {
+              # Enable detailed logging
+              log {
+                  output file /var/log/caddy/access.log
+                  format json
+              }
+              
+              # Add response headers
+              header {
+                  Server "Caddy GS-Lab"
+                  X-Frame-Options "DENY"
+                  X-Content-Type-Options "nosniff"
+              }
+              
+              # Health check endpoint
+              handle /health {
+                  respond "OK" 200
+              }
+          
+              # reverse proxy to nginx backend for /nginx path
+              handle_path /nginx* {
+                  reverse_proxy 192.168.10.2:80
+              }
+          
+              # Serve static files from /var/www/html
+              handle {
+                  root * /var/www/html
+                  file_server
+              }
+          }
+        mode: '0644'
+        owner: root
+        group: root
+      notify: restart caddy
+
+    - name: Create Caddy log directory
+      ansible.builtin.file:
+        path: /var/log/caddy
+        state: directory
+        mode: '0755'
+        owner: caddy
+        group: caddy
+
+    # ==========================================
+    # STEP 4: Verification
+    # ==========================================
+
+    - name: Restart Caddy to apply configuration
+      ansible.builtin.systemd:
+        name: caddy
+        state: restarted
+
+    - name: Wait for Caddy to be ready
+      ansible.builtin.uri:
+        url: http://localhost:80
+        status_code: 200
+      register: caddy_check
+      until: caddy_check.status == 200
+      retries: 5
+      delay: 2
+
+    - name: Check Caddy metrics endpoint
+      ansible.builtin.uri:
+        url: http://localhost:80/metrics
+        return_content: yes
+      register: caddy_metrics
+      failed_when: false
+
+    - name: Display Caddy setup summary
+      ansible.builtin.debug:
+        msg: |
+            Caddy Web Server: RUNNING
+
+  handlers:
+    - name: restart caddy
+      ansible.builtin.systemd:
+        name: caddy
+        state: restarted

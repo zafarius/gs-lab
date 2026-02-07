@@ -1,0 +1,42 @@
+---
+- name: Test Connectivity to All Hosts
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Test basic ping connectivity
+      ansible.builtin.ping:
+      register: ping_result
+
+    - name: Display ping result
+      ansible.builtin.debug:
+        msg: "✓ Host {{ inventory_hostname }} is reachable via SSH"
+      when: ping_result is success
+
+    - name: Get hostname
+      ansible.builtin.command: hostname
+      register: hostname_result
+      changed_when: false
+
+    - name: Display system information
+      ansible.builtin.debug:
+        msg: |
+          Host: {{ inventory_hostname }}
+          Hostname: {{ hostname_result.stdout }}
+          IP Address: {{ ansible_host }}
+          OS Family: {{ ansible_os_family }}
+          Distribution: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Kernel: {{ ansible_kernel }}
+
+    - name: Test connectivity between caddy and nginx
+      ansible.builtin.command: ping -c 2 192.168.10.2
+      register: internal_ping
+      changed_when: false
+      failed_when: false
+      when: inventory_hostname == 'caddy'
+
+    - name: Display internal network connectivity
+      ansible.builtin.debug:
+        msg: "✓ Caddy can reach Nginx on private network"
+      when:
+        - inventory_hostname == 'caddy'
+        - internal_ping.rc == 0

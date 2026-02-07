@@ -1,0 +1,338 @@
+---
+- name: Setup Prometheus Monitoring
+  hosts: gateways
+  become: true
+  vars:
+    prometheus_version: "2.49.1"
+    prometheus_home: "/opt/prometheus"
+
+  tasks:
+    # ==========================================
+    # STEP 1: Install Prometheus
+    # ==========================================
+
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - tar
+        state: present
+        update_cache: yes
+
+    - name: Create prometheus user
+      ansible.builtin.user:
+        name: prometheus
+        system: yes
+        shell: /bin/false
+        create_home: no
+
+    - name: Create Prometheus directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+        owner: prometheus
+        group: prometheus
+      loop:
+        - "{{ prometheus_home }}"
+        - /etc/prometheus
+        - /var/lib/prometheus
+
+    - name: Check if Prometheus is already downloaded
+      ansible.builtin.stat:
+        path: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+      register: prometheus_archive
+
+    - name: Download Prometheus
+      ansible.builtin.get_url:
+        url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        dest: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        mode: '0644'
+      when: not prometheus_archive.stat.exists
+
+    - name: Extract Prometheus
+      ansible.builtin.unarchive:
+        src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+        dest: "/tmp"
+        remote_src: yes
+        creates: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64"
+
+    - name: Copy Prometheus binaries
+      ansible.builtin.copy:
+        src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+        dest: "{{ prometheus_home }}/{{ item }}"
+        mode: '0755'
+        owner: prometheus
+        group: prometheus
+        remote_src: yes
+      loop:
+        - prometheus
+        - promtool
+
+    - name: Copy Prometheus console files
+      ansible.builtin.copy:
+        src: "/tmp/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+        dest: "/etc/prometheus/{{ item }}"
+        mode: '0644'
+        owner: prometheus
+        group: prometheus
+        remote_src: yes
+      loop:
+        - consoles
+        - console_libraries
+
+    # ==========================================
+    # STEP 2: Configure Prometheus
+    # ==========================================
+
+    - name: Create Prometheus configuration
+      ansible.builtin.copy:
+        dest: /etc/prometheus/prometheus.yml
+        content: |
+          # Prometheus Configuration for Caddy Monitoring
+          global:
+            scrape_interval: 15s
+            evaluation_interval: 15s
+            external_labels:
+              monitor: 'gs-lab-caddy'
+              environment: 'production'
+
+          # Alertmanager configuration (optional, can be expanded later)
+          alerting:
+            alertmanagers:
+              - static_configs:
+                  - targets: []
+
+          # Load alerting rules
+          rule_files:
+            - '/etc/prometheus/alert_rules.yml'
+
+          # Scrape configurations
+          scrape_configs:
+            # Prometheus self-monitoring
+            - job_name: 'prometheus'
+              static_configs:
+                - targets: ['localhost:9090']
+              metrics_path: '/metrics'
+
+            # Caddy web server monitoring
+            - job_name: 'caddy'
+              scrape_interval: 10s
+              static_configs:
+                - targets: ['localhost:80']
+              metrics_path: '/metrics'
+              metric_relabel_configs:
+                # Keep important Caddy metrics
+                - source_labels: [__name__]
+                  regex: 'caddy_.*'
+                  action: keep
+
+            # Nginx health check via Caddy reverse proxy
+            - job_name: 'nginx-health'
+              scrape_interval: 15s
+              metrics_path: '/nginx/health'
+              static_configs:
+                - targets: ['localhost:80']
+                  labels:
+                    service: 'nginx'
+                    backend: '192.168.10.2'
+        mode: '0644'
+        owner: prometheus
+        group: prometheus
+      notify: restart prometheus
+
+    - name: Create Prometheus alert rules
+      ansible.builtin.copy:
+        dest: /etc/prometheus/alert_rules.yml
+        content: |
+          {% raw %}
+          groups:
+            - name: service_alerts
+              interval: 30s
+              rules:
+                # Alert when Caddy server is down
+                - alert: CaddyDown
+                  expr: up{job="caddy"} == 0
+                  for: 1m
+                  labels:
+                    severity: critical
+                    service: caddy
+                  annotations:
+                    summary: "Caddy is down"
+                    description: "Caddy web server ({{ $labels.instance }}) has been down for more than 1 minute."
+                
+                # Alert when Nginx health check fails
+                - alert: NginxDown
+                  expr: up{job="nginx-health"} == 0
+                  for: 1m
+                  labels:
+                    severity: critical
+                    service: nginx
+                  annotations:
+                    summary: "Nginx is down"
+                    description: "Nginx backend (192.168.10.2) is down or unreachable for more than 1 minute."
+          {% endraw %}
+        mode: '0644'
+        owner: prometheus
+        group: prometheus
+      notify: restart prometheus
+
+    - name: Validate Prometheus configuration
+      ansible.builtin.command:
+        cmd: "{{ prometheus_home }}/promtool check config /etc/prometheus/prometheus.yml"
+      register: prometheus_config_check
+      changed_when: false
+
+    - name: Validate Prometheus alert rules
+      ansible.builtin.command:
+        cmd: "{{ prometheus_home }}/promtool check rules /etc/prometheus/alert_rules.yml"
+      register: prometheus_rules_check
+      changed_when: false
+
+    - name: Display configuration validation result
+      ansible.builtin.debug:
+        msg:
+          - "✓ Prometheus configuration is valid"
+          - "✓ Alert rules are valid"
+      when: prometheus_config_check.rc == 0 and prometheus_rules_check.rc == 0
+
+    # ==========================================
+    # STEP 3: Create Prometheus Service
+    # ==========================================
+
+    - name: Create Prometheus systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/prometheus.service
+        content: |
+          [Unit]
+          Description=Prometheus Monitoring System
+          Documentation=https://prometheus.io/docs/introduction/overview/
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=simple
+          User=prometheus
+          Group=prometheus
+          ExecStart={{ prometheus_home }}/prometheus \
+            --config.file=/etc/prometheus/prometheus.yml \
+            --storage.tsdb.path=/var/lib/prometheus \
+            --web.console.templates=/etc/prometheus/consoles \
+            --web.console.libraries=/etc/prometheus/console_libraries \
+            --web.listen-address=0.0.0.0:9090 \
+            --web.enable-lifecycle \
+            --storage.tsdb.retention.time=15d
+
+          ExecReload=/bin/kill -HUP $MAINPID
+          Restart=on-failure
+          RestartSec=5s
+
+          # Security settings
+          NoNewPrivileges=true
+          ProtectSystem=strict
+          ProtectHome=true
+          ReadWritePaths=/var/lib/prometheus
+          PrivateTmp=true
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: '0644'
+      notify: restart prometheus
+
+    - name: Reload systemd daemon
+      ansible.builtin.systemd:
+        daemon_reload: yes
+
+    - name: Enable and start Prometheus
+      ansible.builtin.systemd:
+        name: prometheus
+        state: started
+        enabled: yes
+
+    # ==========================================
+    # STEP 4: Verification
+    # ==========================================
+
+    - name: Wait for Prometheus to be ready
+      ansible.builtin.uri:
+        url: http://localhost:9090/-/ready
+        status_code: 200
+      register: prometheus_check
+      until: prometheus_check.status == 200
+      retries: 10
+      delay: 3
+
+    - name: Check Prometheus targets
+      ansible.builtin.uri:
+        url: http://localhost:9090/api/v1/targets
+        return_content: yes
+      register: prometheus_targets
+      failed_when: false
+
+    - name: Parse Prometheus targets
+      ansible.builtin.set_fact:
+        active_targets: "{{ (prometheus_targets.content | from_json).data.activeTargets | length }}"
+      when: prometheus_targets.status == 200
+
+    - name: Display Prometheus setup summary
+      ansible.builtin.debug:
+        msg: |
+          ================================================
+          🎉 Prometheus Setup Complete! 
+          ================================================
+          
+          ✓ Prometheus Monitoring: RUNNING
+            - Prometheus UI: http://{{ ansible_host }}:9090
+            - Prometheus API: http://{{ ansible_host }}:9090/api/v1
+            - Alerts: http://{{ ansible_host }}:9090/alerts
+            - Metrics endpoint: http://{{ ansible_host }}:9090/metrics
+            - Health check: http://{{ ansible_host }}:9090/-/healthy
+          
+          📊 Monitoring Configuration:
+            - Scrape interval: 10s (Caddy), 15s (Prometheus)
+            - Alert evaluation: 15s
+            - Data retention: 15 days
+            - Active targets: {{ active_targets | default('checking...') }}
+          
+          🎯 Monitored Services:
+            - Prometheus self-monitoring (localhost:9090)
+            - Caddy web server (localhost:80)
+            - Nginx backend health (localhost:80/nginx/health → 192.168.10.2)
+          
+          📈 Metrics Collected:
+            - HTTP response codes (2xx, 3xx, 4xx, 5xx)
+            - Request latency & duration
+            - Server uptime
+            - Request rate & throughput
+            - Request errors (caddy_http_request_errors_total)
+            - Active connections
+            - Nginx health check status (up metric for nginx-health job)
+          
+          🚨 Configured Alerts:
+            1. CaddyDown - Caddy server is down (critical, 1m)
+            2. NginxDown - Nginx backend is down (critical, 1m)
+          
+          🔍 Useful Prometheus Queries:
+            - up{job="caddy"}                                    # Caddy status (1=up, 0=down)
+            - up{job="nginx-health"}                             # Nginx status (1=up, 0=down)
+            - ALERTS{alertstate="firing"}                        # Currently firing alerts
+            - ALERTS{alertname="CaddyDown"}                      # Caddy down alert
+            - ALERTS{alertname="NginxDown"}                      # Nginx down alert
+          
+          📝 Configuration Files:
+            - Config: /etc/prometheus/prometheus.yml
+            - Alert rules: /etc/prometheus/alert_rules.yml
+            - Data: /var/lib/prometheus
+            - Binary: {{ prometheus_home }}/prometheus
+          
+          💡 View Alerts: http://{{ ansible_host }}:9090/alerts
+          💡 Access Prometheus UI at: http://{{ ansible_host }}:9090
+          
+          ================================================
+
+  handlers:
+    - name: restart prometheus
+      ansible.builtin.systemd:
+        name: prometheus
+        state: restarted

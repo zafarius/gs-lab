@@ -1,0 +1,15 @@
+# Ansible Inventory Template
+# Copy this file to inventory.ini and fill in your actual values
+
+[all:vars]
+ansible_ssh_private_key_file=~/.ssh/YOUR_SSH_KEY
+
+[gateways]
+caddy ansible_host=YOUR_CADDY_PUBLIC_IP
+
+[private_hosts]
+nginx ansible_host=YOUR_NGINX_PRIVATE_IP
+
+[private_hosts:vars]
+# Use ProxyCommand to connect to private hosts through the caddy gateway
+ansible_ssh_common_args='-o ProxyCommand="ssh -i ~/.ssh/YOUR_SSH_KEY -W %h:%p -q root@YOUR_CADDY_PUBLIC_IP"'
